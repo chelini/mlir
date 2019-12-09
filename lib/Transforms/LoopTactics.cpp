@@ -4,6 +4,8 @@
 
 #include "LoopTactics/matchers.h"
 #include "LoopTactics/access.h"
+#include "mlir/IR/Matchers.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
 
 using namespace mlir;
 using namespace llvm;
@@ -54,13 +56,27 @@ mlir::createLoopTacticsPass() {
 //}
 
 static bool hasGemmAccesses(SmallVector<Operation *, 8> loadOps) {
-  using namespace matchers;
+  using namespace looptactics;
   auto _i = Placeholder();
   auto _j = Placeholder();
   auto _k = Placeholder();
   auto psRead = allOf(access(_i, _j), access(_i, _k), access(_k, _j));
   auto matches = match(loadOps, psRead);
   return matches.size() == 1;
+}
+
+static bool hasGemmOperations(Operation *op) { 
+  using namespace matchers;
+  auto matcher = m_Op<AddFOp>(m_any(), m_Op<MulFOp>());
+  //auto matcher = m_Op<AddFOp>(m_Op<MulFOp>(), m_any());
+  auto forOp = dyn_cast<AffineForOp>(op); 
+  int count = 0;
+  forOp.getOperation()->walk([&] (Operation *op) {
+    if (matcher.match(op))
+      count++;
+  });
+
+  return count == 1;
 }
 
 static bool hasGemmPatternImpl(Operation *op) {
@@ -75,7 +91,7 @@ static bool hasGemmPatternImpl(Operation *op) {
   // expect 3 reads.
   if (loadOps.size() != 3)  
     return false;
-  return hasGemmAccesses(loadOps);
+  return hasGemmOperations(op) && hasGemmAccesses(loadOps);
 }
 
 void LoopTactics::runOnFunction() {
@@ -84,7 +100,7 @@ void LoopTactics::runOnFunction() {
     return hasGemmPatternImpl(op);
   };
 
-  using namespace matchers;
+  using namespace looptactics;
   auto matcher = 
     affineFor(
       affineFor(
