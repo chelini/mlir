@@ -159,16 +159,79 @@ public:
   /// Add the provided instrumentation to the pass manager.
   void addInstrumentation(std::unique_ptr<PassInstrumentation> pi);
 
-  /// Add an instrumentation to print the IR before and after pass execution.
+  //===--------------------------------------------------------------------===//
+  // IR Printing
+
+  /// A configuration struct provided to the IR printer instrumentation.
+  class IRPrinterConfig {
+  public:
+    using PrintCallbackFn = function_ref<void(raw_ostream &)>;
+
+    /// Initialize the configuration.
+    /// * 'printModuleScope' signals if the top-level module IR should always be
+    ///   printed. This should only be set to true when multi-threading is
+    ///   disabled, otherwise we may try to print IR that is being modified
+    ///   asynchronously.
+    /// * 'printAfterOnlyOnChange' signals that when printing the IR after a
+    ///   pass, in the case of a non-failure, we should first check if any
+    ///   potential mutations were made. This allows for reducing the number of
+    ///   logs that don't contain meaningful changes.
+    explicit IRPrinterConfig(bool printModuleScope = false,
+                             bool printAfterOnlyOnChange = false);
+    virtual ~IRPrinterConfig();
+
+    /// A hook that may be overridden by a derived config that checks if the IR
+    /// of 'operation' should be dumped *before* the pass 'pass' has been
+    /// executed. If the IR should be dumped, 'printCallback' should be invoked
+    /// with the stream to dump into.
+    virtual void printBeforeIfEnabled(Pass *pass, Operation *operation,
+                                      PrintCallbackFn printCallback);
+
+    /// A hook that may be overridden by a derived config that checks if the IR
+    /// of 'operation' should be dumped *after* the pass 'pass' has been
+    /// executed. If the IR should be dumped, 'printCallback' should be invoked
+    /// with the stream to dump into.
+    virtual void printAfterIfEnabled(Pass *pass, Operation *operation,
+                                     PrintCallbackFn printCallback);
+
+    /// Returns true if the IR should always be printed at the top-level scope.
+    bool shouldPrintAtModuleScope() const { return printModuleScope; }
+
+    /// Returns true if the IR should only printed after a pass if the IR
+    /// "changed".
+    bool shouldPrintAfterOnlyOnChange() const { return printAfterOnlyOnChange; }
+
+  private:
+    /// A flag that indicates if the IR should be printed at module scope.
+    bool printModuleScope;
+
+    /// A flag that indicates that the IR after a pass should only be printed if
+    /// a change is detected.
+    bool printAfterOnlyOnChange;
+  };
+
+  /// Add an instrumentation to print the IR before and after pass execution,
+  /// using the provided configuration.
+  void enableIRPrinting(std::unique_ptr<IRPrinterConfig> config);
+
+  /// Add an instrumentation to print the IR before and after pass execution,
+  /// using the provided fields to generate a default configuration:
   /// * 'shouldPrintBeforePass' and 'shouldPrintAfterPass' correspond to filter
-  ///   functions that take a 'Pass *'. These function should return true if the
-  ///   IR should be printed or not.
-  /// * 'printModuleScope' signals if the module IR should be printed, even for
-  ///   non module passes.
+  ///   functions that take a 'Pass *' and `Operation *`. These function should
+  ///   return true if the IR should be printed or not.
+  /// * 'printModuleScope' signals if the module IR should be printed, even
+  ///   for non module passes.
+  /// * 'printAfterOnlyOnChange' signals that when printing the IR after a
+  ///   pass, in the case of a non-failure, we should first check if any
+  ///   potential mutations were made.
   /// * 'out' corresponds to the stream to output the printed IR to.
-  void enableIRPrinting(std::function<bool(Pass *)> shouldPrintBeforePass,
-                        std::function<bool(Pass *)> shouldPrintAfterPass,
-                        bool printModuleScope, raw_ostream &out);
+  void enableIRPrinting(
+      std::function<bool(Pass *, Operation *)> shouldPrintBeforePass,
+      std::function<bool(Pass *, Operation *)> shouldPrintAfterPass,
+      bool printModuleScope, bool printAfterOnlyOnChange, raw_ostream &out);
+
+  //===--------------------------------------------------------------------===//
+  // Pass Timing
 
   /// Add an instrumentation to time the execution of passes and the computation
   /// of analyses.
