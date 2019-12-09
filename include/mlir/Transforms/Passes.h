@@ -104,6 +104,9 @@ std::unique_ptr<OpPassBase<FuncOp>> createLowerAffinePass();
 std::unique_ptr<OpPassBase<FuncOp>>
 createLoopTilingPass(uint64_t cacheSizeBytes);
 
+/// Creates a pass to run Loop Tactics.
+std::unique_ptr<OpPassBase<FuncOp>> createLoopTacticsPass();
+
 /// Creates a pass that performs parametric tiling so that the outermost loops
 /// have the given fixed number of iterations.  Assumes outermost loop nests
 /// are permutable.

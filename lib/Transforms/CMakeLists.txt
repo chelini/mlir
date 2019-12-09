@@ -1,4 +1,5 @@
 add_subdirectory(Utils)
+add_subdirectory(LoopTactics)
 
 add_llvm_library(MLIRTransforms
   AffineDataCopyGeneration.cpp
@@ -13,6 +14,7 @@ add_llvm_library(MLIRTransforms
   LoopTiling.cpp
   LoopUnrollAndJam.cpp
   LoopUnroll.cpp
+  LoopTactics.cpp
   MemRefDataFlowOpt.cpp
   PipelineDataTransfer.cpp
   SimplifyAffineStructures.cpp
@@ -35,4 +37,5 @@ target_link_libraries(MLIRTransforms
   MLIRPass
   MLIRTransformUtils
   MLIRVectorOps
+  MLIRLoopTactics
   )
