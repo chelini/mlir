@@ -9,7 +9,7 @@
 // fix this or let the match method ensure that the same placeholder
 // used for read and write matches the same dimension. 
 
-namespace matchers {
+namespace looptactics {
 
 // placeholder unique identifier.
 thread_local size_t Placeholder::nextId_ = 0;
@@ -305,4 +305,4 @@ void PlaceholderSet::dump() {
   outs() << "\n\n";
 }
 
-} // end namespace matchers
+} // end namespace looptactics.

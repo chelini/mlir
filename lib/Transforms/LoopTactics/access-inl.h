@@ -1,4 +1,4 @@
-namespace matchers {
+namespace looptactics {
 
 template<class T, class...>
 struct are_same : std::true_type
@@ -45,4 +45,4 @@ PlaceholderSet allOf(Args... args) {
   return ps;
 }
 
-} // end namespace matchers.
+} // end namespace looptactics.

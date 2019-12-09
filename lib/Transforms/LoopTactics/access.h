@@ -9,7 +9,7 @@
 using namespace mlir;
 using namespace llvm;
 
-namespace matchers {
+namespace looptactics {
 
 class CandidateDim;
 
@@ -153,7 +153,7 @@ using Matches = std::vector<Match>;
 
 Matches match (SmallVector<Operation *, 8> &ops, PlaceholderSet ps);
 
-} // end namespace matchers
+} // end namespace looptactics.
 
 #include "access-inl.h"
 

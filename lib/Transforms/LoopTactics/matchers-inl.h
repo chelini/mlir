@@ -1,4 +1,4 @@
-namespace matchers {
+namespace looptactics {
 
 inline OperationMatcher affineFor(std::function<bool(Operation *op)> callback,
     OperationMatcher &&child) {
@@ -24,6 +24,4 @@ inline OperationMatcher affineFor(OperationMatcher &&child) {
   return m;
 }
 
-
-
-} // end namespace matchers
+} // end namespace looptactics.

@@ -6,7 +6,7 @@
 #include "mlir/Analysis/AffineAnalysis.h"
 #include "mlir/Analysis/Utils.h"
 
-namespace matchers {
+namespace looptactics {
 
 using namespace mlir;
 
@@ -37,7 +37,7 @@ class OperationMatcher {
 };
 
 
-} // end namespace matchers
+} // end namespace looptactics.
 
 #include "matchers-inl.h"
 

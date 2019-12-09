@@ -1,6 +1,6 @@
 #include "matchers.h"
 
-namespace matchers {
+namespace looptactics {
 
 using namespace mlir;
 
@@ -31,4 +31,4 @@ bool OperationMatcher::isMatching(const OperationMatcher &matcher,
   return true;
 }
 
-} // end namespace matchers
+} // end namespace looptactics.
