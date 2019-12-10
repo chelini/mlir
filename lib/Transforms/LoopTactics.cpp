@@ -67,7 +67,7 @@ static bool hasGemmAccesses(SmallVector<Operation *, 8> loadOps) {
 
 static bool hasGemmOperations(Operation *op) { 
   using namespace matchers;
-  auto matcher = m_Op<AddFOp>(m_any(), m_Op<MulFOp>());
+  auto matcher = m_Op<AddFOp>(m_Any(), m_Op<MulFOp>());
   //auto matcher = m_Op<AddFOp>(m_Op<MulFOp>(), m_any());
   auto forOp = dyn_cast<AffineForOp>(op); 
   int count = 0;
