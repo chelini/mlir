@@ -33,10 +33,11 @@ class CandidateDim {
     Operation *operation_;
  
   public:
-    CandidateDim() = delete;
+    CandidateDim() : inputDimPos_(nullptr), operation_(nullptr) {};
     CandidateDim(Value *v, Operation *o) : inputDimPos_(v), operation_(o) {};
     static std::vector<CandidateDim>
         candidates(Operation *op, const AffineFunction &pattern);
+    bool operator==(const CandidateDim &candidate);
 };
 
 /// Fixed output dim pattern.
@@ -143,13 +144,30 @@ class PlaceholderSet {
     }; 
 };
 
+// forward declaration.
+class MatchCandidate;
+// A match. Bind the placeholder id with a candidate dimension.
 class Match {
   public:
     explicit Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidates);
+    MatchCandidate operator[](const Placeholder &placeholder) const;
   private:
     std::vector<std::pair<size_t, CandidateDim>> placeholderValues_;
 };
 using Matches = std::vector<Match>;
+
+/// Matched candidate.
+class MatchCandidate {
+  public:
+    MatchCandidate() : assigned_(false) {};
+    Value* matchedDim() const {
+      return candidateDimension_.inputDimPos_;
+    }
+  private:
+    bool assigned_;
+    CandidateDim candidateDimension_;
+  friend class Match;
+};
 
 Matches match (SmallVector<Operation *, 8> &ops, PlaceholderSet ps);
 

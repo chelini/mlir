@@ -246,6 +246,32 @@ Match::Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidat
   }
 }
 
+MatchCandidate Match::operator[](const Placeholder &placeholder) const {
+  MatchCandidate res;
+  for (const auto &key : placeholderValues_) {
+    if (key.first == placeholder.id_) {
+      if (!res.assigned_) {
+        res.assigned_ = true;
+        res.candidateDimension_ = key.second;
+      } else if (res.candidateDimension_ == key.second) {
+        llvm_unreachable("different candidate for the same placeholder");
+      }
+    }
+  }
+  if (!res.assigned_) {
+    llvm_unreachable("not match for the placeholder");
+  }
+  return res;
+}
+
+bool CandidateDim::operator==(const CandidateDim &candidate) {
+  if (this->inputDimPos_ != candidate.inputDimPos_)
+    return false;
+  if (this->operation_ != candidate.operation_)
+    return false;
+  return true;
+}
+
 // dump placeholder.
 void Placeholder::dump() {
   outs() << "constant: " << pattern_.affine_.constant_ << "\n";
