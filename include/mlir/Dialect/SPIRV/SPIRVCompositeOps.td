@@ -54,7 +54,7 @@ def SPV_CompositeConstructOp : SPV_Op<"CompositeConstruct", [NoSideEffect]> {
 
     ### Custom assembly form
 
-    ``` {.ebnf}
+    ```
     composite-construct-op ::= ssa-id `=` `spv.CompositeConstruct`
                                (ssa-use (`,` ssa-use)* )? `:` composite-type
     ```
@@ -93,7 +93,7 @@ def SPV_CompositeExtractOp : SPV_Op<"CompositeExtract", [NoSideEffect]> {
 
     ### Custom assembly form
 
-    ``` {.ebnf}
+    ```
     composite-extract-op ::= ssa-id `=` `spv.CompositeExtract` ssa-use
                              `[` integer-literal (',' integer-literal)* `]`
                              `:` composite-type
@@ -117,6 +117,11 @@ def SPV_CompositeExtractOp : SPV_Op<"CompositeExtract", [NoSideEffect]> {
   let results = (outs
     SPV_Type:$component
   );
+
+  let builders = [
+    OpBuilder<[{Builder *builder, OperationState &state,
+                Value *composite, ArrayRef<int32_t> indices}]>
+  ];
 
   let hasFolder = 1;
 }
@@ -143,7 +148,7 @@ def SPV_CompositeInsertOp : SPV_Op<"CompositeInsert", [NoSideEffect]> {
 
     ### Custom assembly form
 
-    ``` {.ebnf}
+    ```
     composite-insert-op ::= ssa-id `=` `spv.CompositeInsert` ssa-use, ssa-use
                             `[` integer-literal (',' integer-literal)* `]`
                             `:` object-type `into` composite-type

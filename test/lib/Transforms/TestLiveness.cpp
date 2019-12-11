@@ -1,4 +1,5 @@
-//===- VectorTransformPatterns.td - Vector-Vector patterns -*- tablegen -*-===//
+//===- TestLiveness.cpp - Test liveness construction and information
+//-------===//
 //
 // Copyright 2019 The MLIR Authors.
 //
@@ -15,21 +16,27 @@
 // limitations under the License.
 // =============================================================================
 //
-// This is the pattern definition file for declarative Vector transformations.
+// This file contains test passes for constructing and resolving liveness
+// information.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef VECTOR_TRANSFORM_PATTERNS
-#define VECTOR_TRANSFORM_PATTERNS
+#include "mlir/Analysis/Liveness.h"
+#include "mlir/Pass/Pass.h"
 
-include "mlir/IR/OpBase.td"
+using namespace mlir;
 
-class HasShape<list<int> shape> :
-  CPred<"$0->getType().cast<ShapedType>().hasStaticShape({" #
-    StrJoinInt<shape>.result # "})">;
+namespace {
 
-class UnrollVectorOp<list<int> factors> : NativeCodeCall<
-  "unrollSingleResultOpMatchingType($_builder, $0->getDefiningOp(), " #
-    "{" # StrJoinInt<factors>.result # "})">;
+struct TestLivenessPass : public FunctionPass<TestLivenessPass> {
+  void runOnFunction() override {
+    llvm::errs() << "Testing : " << getFunction().getName() << "\n";
+    getAnalysis<Liveness>().print(llvm::errs());
+  }
+};
 
-#endif // VECTOR_TRANSFORM_PATTERNS
+} // end anonymous namespace
+
+static PassRegistration<TestLivenessPass>
+    pass("test-print-liveness",
+         "Print the contents of a constructed liveness information.");
