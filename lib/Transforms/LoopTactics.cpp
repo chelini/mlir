@@ -13,7 +13,7 @@
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "loop-tactics"
+#define DEBUG_TYPE "lift-loop"
 
 /* Thinking:
 
@@ -29,19 +29,19 @@ of loops (i.e., loop::FrOp)?
 */
 
 namespace {
-  class LoopTactics : public FunctionPass<LoopTactics> {
+  class LoopsLifter : public FunctionPass<LoopsLifter> {
     public:
-      explicit LoopTactics() {};
+      explicit LoopsLifter() {};
       void runOnFunction() override;
   };
 }
 
 std::unique_ptr<OpPassBase<FuncOp>>
-mlir::createLoopTacticsPass() {
-  return std::make_unique<LoopTactics>();
+mlir::createLoopsLiftingPass() {
+  return std::make_unique<LoopsLifter>();
 }
 
-void LoopTactics::runOnFunction() {
+void LoopsLifter::runOnFunction() {
 
   using namespace looptactics;
   auto matcher = 
@@ -60,4 +60,4 @@ void LoopTactics::runOnFunction() {
 
 } 
 
-static PassRegistration<LoopTactics> pass("loop-tactics", "enable loop tactics");
+static PassRegistration<LoopsLifter> pass("lift-loops", "lift loops with loop tactics");
