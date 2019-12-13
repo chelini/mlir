@@ -3,39 +3,24 @@
 
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Analysis/AffineStructures.h"
-#include "mlir/Analysis/AffineAnalysis.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/LoopOps/LoopOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 namespace looptactics {
 
 using namespace mlir;
+using namespace llvm;
 
-class OperationMatcher;
+template <typename OpType>
+struct Matcher {
 
-OperationMatcher affineFor(std::function<bool(Operation *op)> callback,
-    OperationMatcher &&);
-OperationMatcher affineFor(std::function<bool(Operation *op)> callback);
-OperationMatcher affineFor(OperationMatcher &&);
-
-enum class OperationType {
-  AffineFor,
-  Unknown
+  Matcher<OpType> m_Loop(std::function<bool(OpType)>);
+  Matcher<OpType> m_Loop(Matcher<OpType> &&);
+  
+  bool hasSameType(Operation *op) const { return isa<OpType>(op); };
+  std::vector<Matcher<OpType>> children_;
+  std::function<bool(OpType op)> callback_;
 };
-
-class OperationMatcher {
-  friend OperationMatcher affineFor(std::function<bool(Operation *op)> callback,
-      OperationMatcher &&child);
-  friend OperationMatcher affineFor(OperationMatcher &&child);
-  friend OperationMatcher affineFor(std::function<bool(Operation *op)> callback);
-
-  public:
-    static bool isMatching(const OperationMatcher &matcher, Operation *op);
-  private:
-    OperationType current_;
-    std::vector<OperationMatcher> children_;
-    std::function<bool(Operation *op)> callback_;
-};
-
 
 } // end namespace looptactics.
 
