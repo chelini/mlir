@@ -29,15 +29,16 @@ class AffineFunction {
 /// Candidate.
 class CandidateDim {
   public:
-    Value *inputDimPos_;
+    mlir::Value *inputDimPos_;
     Operation *operation_;
  
   public:
     CandidateDim() : inputDimPos_(nullptr), operation_(nullptr) {};
-    CandidateDim(Value *v, Operation *o) : inputDimPos_(v), operation_(o) {};
+    CandidateDim(mlir::Value *v, Operation *o) : inputDimPos_(v), operation_(o) {};
     static std::vector<CandidateDim>
         candidates(Operation *op, const AffineFunction &pattern);
-    bool operator==(const CandidateDim &candidate);
+    bool operator==(const CandidateDim &candidate) const;
+    bool operator!=(const CandidateDim &candidate) const;
 };
 
 /// Fixed output dim pattern.
@@ -59,41 +60,46 @@ class FixedOutDimPattern {
 };
 
 /// Placeholder class.
+template <typename PatternPayload>
 class Placeholder {
   public:
-    FixedOutDimPattern pattern_;
+    PatternPayload pattern_;
     std::vector<CandidateDim> candidates_;
     const size_t id_;
 
   public:
     explicit Placeholder() : 
       pattern_(FixedOutDimPattern()), candidates_({}), id_(nextId_++) {};
-    explicit Placeholder(FixedOutDimPattern pattern) : 
-      pattern_(pattern), candidates_({}), id_(nextId_++) {};  
+    explicit Placeholder(PatternPayload pattern) : 
+      pattern_(pattern), candidates_({}), id_(nextId_++) {}; 
     void dump();
   
   private:
     static thread_local size_t nextId_;
 };
 
-inline Placeholder operator+(Placeholder p, int i) {
+inline Placeholder<FixedOutDimPattern> 
+    operator+(Placeholder<FixedOutDimPattern> p, int i) {
   p.pattern_.affine_.constant_ += i;
   return p;
 }
 
-inline Placeholder operator-(Placeholder p, int i) {
+inline Placeholder<FixedOutDimPattern> 
+    operator-(Placeholder<FixedOutDimPattern> p, int i) {
   p.pattern_.affine_.constant_ -= i;
   return p;
 }
 
-inline Placeholder operator*(int i, Placeholder p) {
+inline Placeholder<FixedOutDimPattern> 
+    operator*(int i, Placeholder<FixedOutDimPattern> p) {
   if (i <= 0)
     llvm_unreachable("Invalid coefficient for Placeholder");
   p.pattern_.affine_.coefficient_ *= i;
   return p;
 }
 
-inline Placeholder operator*(Placeholder p, int i) {
+inline Placeholder<FixedOutDimPattern> 
+    operator*(Placeholder<FixedOutDimPattern> p, int i) {
   if (i <= 0)
     llvm_unreachable("Invalid coefficient for Placeholder");
   p.pattern_.affine_.coefficient_ *= i;
@@ -104,7 +110,7 @@ inline Placeholder operator*(Placeholder p, int i) {
 /// single access can be constructed using access(...)
 class PlaceholderSet {
   public:
-    std::vector<Placeholder> placeholders_;
+    std::vector<Placeholder<FixedOutDimPattern>> placeholders_;
     // Each inner vector has a set of indices of placeholders that should appear
     // together in a relation.  Different groups must correspond to different
     // relations.  We store indices separately because a placeholder may appear
@@ -115,7 +121,7 @@ class PlaceholderSet {
     // the future for a more C++-idiomatic API.
     std::vector<std::vector<size_t>> placeholderGroups_;
     // Placeholder fold is an identifier of a set of placeholders that must get
-    // assigned the same candidate value modulo the matched map.  The idea is to
+    // assigned the same candidate value modulo the matched memRef.  The idea is to
     // reuse, at the API level, placeholders in multiple places to indicate
     // equality of the matched access patterns.
     // This vector is co-indexed with placeholders_.  By default, each
@@ -150,8 +156,8 @@ class MatchCandidate;
 class Match {
   public:
     explicit Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidates);
-    MatchCandidate operator[](const Placeholder &placeholder) const;
-  private:
+    MatchCandidate operator[](const Placeholder<FixedOutDimPattern> &placeholder) const;
+
     std::vector<std::pair<size_t, CandidateDim>> placeholderValues_;
 };
 using Matches = std::vector<Match>;
@@ -160,7 +166,7 @@ using Matches = std::vector<Match>;
 class MatchCandidate {
   public:
     MatchCandidate() : assigned_(false) {};
-    Value* matchedDim() const {
+    mlir::Value* matchedDim() const {
       return candidateDimension_.inputDimPos_;
     }
   private:
@@ -169,7 +175,11 @@ class MatchCandidate {
   friend class Match;
 };
 
-Matches match (SmallVector<Operation *, 8> &ops, PlaceholderSet ps);
+Matches match (const SmallVector<Operation *, 8> &opsFirst, PlaceholderSet psFirst,
+    const SmallVector<Operation *, 8> &opsSecond = SmallVector<Operation *, 8>(), 
+    PlaceholderSet psSecond = PlaceholderSet());
+
+using placeholder = Placeholder<FixedOutDimPattern>;
 
 } // end namespace looptactics.
 

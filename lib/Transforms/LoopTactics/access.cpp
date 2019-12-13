@@ -11,9 +11,6 @@
 
 namespace looptactics {
 
-// placeholder unique identifier.
-thread_local size_t Placeholder::nextId_ = 0;
-
 // Is the affine expression single-dimension?
 static bool isSingleDim(AffineExpr expr) {
   int dimCount = 0;
@@ -32,11 +29,11 @@ std::vector<CandidateDim> AffineFunction::candidates
     llvm_unreachable("Invalid outDimPos dimension");
   }
 
-  std::vector<CandidateDim> results{};
-  if ((!isa<AffineLoadOp>(op)) && (!isa<AffineLoadOp>(op))) {
-    return {}; 
+  if ((!isa<AffineLoadOp>(op)) && (!isa<AffineStoreOp>(op))) {
+    llvm_unreachable("Expect only (affine) load and store at this point");
   }
-  
+
+  std::vector<CandidateDim> results{};  
   AffineExpr affineExpr;
   if (auto loadOp = dyn_cast<AffineLoadOp>(op)) {
     affineExpr = loadOp.getAffineMap().getResult(outDimPos);
@@ -219,7 +216,7 @@ static Matches suitableCandidates(PlaceholderSet &ps) {
 
 // Check if the placeholder combination satisfies the load/store
 // operations provided.
-Matches match(SmallVector<Operation *, 8> &ops, PlaceholderSet ps) {
+Matches matchImpl(const SmallVector<Operation *, 8> &ops, PlaceholderSet ps) {
   if (!ops.size()) {
     return {};
   }
@@ -236,6 +233,53 @@ Matches match(SmallVector<Operation *, 8> &ops, PlaceholderSet ps) {
   return suitableCandidates(ps);
 }
 
+// Placeholder are not reused across different calls of allOf.
+// This means that if we write:
+//    auto matchesRead = match(reads, allOf(access(_i, _j)));
+//    auto matchesWrite = match(writes, allOf(access(_i, _j));
+// the first _i or _j may match different candidate with respect
+// to the second _i and _j. This force the user to check the matched
+// candidates. This function does this for you. 
+Matches match (const SmallVector<Operation *, 8> &opsFirst, PlaceholderSet psFirst,
+    const SmallVector<Operation *, 8> &opsSecond, PlaceholderSet psSecond) {
+  if ((!psSecond.placeholders_.size()) && (!opsSecond.size())) {
+    return matchImpl(opsFirst, psFirst);
+  }
+  if ((psSecond.placeholders_.size()) && (!opsSecond.size())) {
+    return {};  
+  }
+  if ((!psSecond.placeholders_.size()) && (opsSecond.size())) {
+    return {};
+  }
+  auto matchesFirst = matchImpl(opsFirst, psFirst);
+  auto matchesSecond = matchImpl(opsSecond, psSecond);
+  if (matchesFirst.size() != matchesSecond.size())
+    return {};
+
+  for (const auto& matchFirst : matchesFirst) {
+    for (const auto& matchSecond : matchesSecond) {
+      auto psValuesFirst = matchFirst.placeholderValues_;
+      auto psValuesSecond = matchSecond.placeholderValues_;
+      for (const auto& psValueFirst : psValuesFirst) {
+        for (const auto& psValueSecond : psValuesSecond) {
+          if (psValueFirst.first == psValueSecond.first) {
+            if (psValueFirst.second != psValueSecond.second) {
+              return {};
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (size_t i = 0; i < matchesFirst.size(); i++) {
+    matchesFirst[i].placeholderValues_.insert(
+      matchesFirst[i].placeholderValues_.end(), 
+      matchesSecond[i].placeholderValues_.begin(), matchesSecond[i].placeholderValues_.end());
+  }
+  return matchesFirst;
+}
+
 Match::Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidates) {
   size_t size = std::distance(ps.begin(), ps.end());
   if (size != candidates.size())
@@ -246,7 +290,7 @@ Match::Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidat
   }
 }
 
-MatchCandidate Match::operator[](const Placeholder &placeholder) const {
+MatchCandidate Match::operator[](const Placeholder<FixedOutDimPattern> &placeholder) const {
   MatchCandidate res;
   for (const auto &key : placeholderValues_) {
     if (key.first == placeholder.id_) {
@@ -264,35 +308,24 @@ MatchCandidate Match::operator[](const Placeholder &placeholder) const {
   return res;
 }
 
-bool CandidateDim::operator==(const CandidateDim &candidate) {
-  if (this->inputDimPos_ != candidate.inputDimPos_)
+bool CandidateDim::operator==(const CandidateDim &candidate) const {
+  if (this->inputDimPos_ != candidate.inputDimPos_) {
     return false;
-  if (this->operation_ != candidate.operation_)
+  }
+  if (this->operation_ != candidate.operation_) {
     return false;
+  }
   return true;
 }
 
-// dump placeholder.
-void Placeholder::dump() {
-  outs() << "constant: " << pattern_.affine_.constant_ << "\n";
-  outs() << "coefficient: " << pattern_.affine_.coefficient_ << "\n";
-  outs() << "id: " << id_ << "\n";
-  outs() << "#Candidates: " << candidates_.size() << "\n";
-  if (candidates_.size()) {
-    for (size_t i = 0; i < candidates_.size() - 1; i++) {
-      outs() << candidates_[i].inputDimPos_;
-      outs() << " - ";
-    }
-    outs() << candidates_[candidates_.size() - 1].inputDimPos_;
-    outs() << "\n";
-    outs() << "operations" << "\n";
-    for (size_t i = 0; i < candidates_.size() - 1; i++) {
-      outs() << candidates_[i].operation_;
-      outs() << " - ";
-    }
-    outs() << candidates_[candidates_.size() - 1].operation_;
-    outs() << "\n";
+bool CandidateDim::operator!=(const CandidateDim &candidate) const {
+  if (this->inputDimPos_ == candidate.inputDimPos_) {
+    return false;
   }
+  if (this->operation_ == candidate.operation_) {
+    return false;
+  }
+  return true;
 }
 
 // dump placeholderSet.
