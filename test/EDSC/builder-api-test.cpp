@@ -18,10 +18,13 @@
 // RUN: mlir-edsc-builder-api-test | FileCheck %s
 
 #include "mlir/Dialect/AffineOps/AffineOps.h"
+#include "mlir/Dialect/Linalg/EDSC/Builders.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/EDSC/Builders.h"
 #include "mlir/EDSC/Helpers.h"
 #include "mlir/EDSC/Intrinsics.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/MLIRContext.h"
@@ -30,6 +33,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/Functional.h"
 #include "mlir/Transforms/LoopUtils.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -801,6 +805,31 @@ TEST_FUNC(affine_if_op) {
   SmallVector<Value *, 4> affineIfArgs = {zero, zero, ten, ten};
   intrinsics::affine_if(intSet, affineIfArgs, /*withElseRegion=*/false);
   intrinsics::affine_if(intSet, affineIfArgs, /*withElseRegion=*/true);
+
+  f.print(llvm::outs());
+  f.erase();
+}
+
+// clang-format off
+// CHECK-LABEL: func @linalg_matmul
+//       CHECK:   linalg.generic
+///      CHECK:   ^bb1(%[[a0:.*]]: f32, %[[a1:.*]]: f32, %[[a2:.*]]: f32):
+//       CHECK:     %[[a3:.*]] = mulf %[[a0]], %[[a1]] : f32
+//       CHECK:     %[[a4:.*]] = addf %[[a2]], %[[a3]] : f32
+//       CHECK:     linalg.yield %[[a4]] : f32
+//       CHECK:   }: memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
+// clang-format on
+TEST_FUNC(linalg_matmul) {
+  using namespace edsc;
+
+  auto f32Type = FloatType::getF32(&globalContext());
+  auto memrefType = MemRefType::get({-1, -1}, f32Type, {}, 0);
+  auto f =
+      makeFunction("linalg_matmul", {}, {memrefType, memrefType, memrefType});
+
+  OpBuilder builder(f.getBody());
+  ScopedContext scope(builder, f.getLoc());
+  linalg_matmul(makeValueHandles(llvm::to_vector<3>(f.getArguments())));
 
   f.print(llvm::outs());
   f.erase();
