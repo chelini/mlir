@@ -1,3 +1,6 @@
+# TODO:
+1. Move Loop Tactics outside lib/Transforms/..
+
 # Multi-Level Intermediate Representation Overview
 
 The MLIR project aims to define a common intermediate representation (IR) that
