@@ -47,6 +47,7 @@ set(LIBS
   MLIRTransforms
   MLIRTestDialect
   MLIRTestIR
+  MLIRTestLoopLifting
   MLIRTestPass
   MLIRTestTransforms
   MLIRSupport
