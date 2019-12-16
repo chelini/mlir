@@ -73,10 +73,13 @@ static inline bool hasGemmAccessPattern(const SmallVector<Operation *, 8> &loads
   auto _i = placeholder();
   auto _j = placeholder();
   auto _k = placeholder();
-  auto psRead = allOf(access(_i, _j), access(_i, _k), access(_k, _j));
-  auto psWrite = allOf(access(_i, _j));
-  auto matches = match(stores, psWrite, loads, psRead);
-  
+  auto _A = arrayPlaceholder();
+  auto _B = arrayPlaceholder();
+  auto _C = arrayPlaceholder();
+  auto psRead = allOf(access(_A, _i, _j), access(_B, _i, _k), access(_C, _k, _j));
+  //auto psWrite = allOf(access(_A, _i, _j));
+  //auto matches = match(stores, psWrite, loads, psRead);
+  auto matches = match(loads, psRead);
   return (matches.size() == 1);
 }  
 
