@@ -13,7 +13,7 @@
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "lift-loop"
+#define DEBUG_TYPE "lift-loops"
 
 /* Thinking:
 
@@ -50,8 +50,9 @@ void LoopsLifter::runOnFunction() {
         m_Loop<loop::ForOp>(hasGemmPattern<loop::ForOp>)));
 
   auto inspectBlock = [&](Operation *op) {
-    if (isMatching<loop::ForOp>(matcher, op))
-      LLVM_DEBUG(dbgs() << "match!\n");
+    if (isMatching<loop::ForOp>(matcher, op)) {
+      LLVM_DEBUG(dbgs() << "Pattern is matched!\n");
+    }
   };
   
   for (auto &block: getFunction()) {
