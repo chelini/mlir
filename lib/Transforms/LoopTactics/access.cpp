@@ -33,6 +33,8 @@ std::vector<CandidateDim> AffineFunction::candidates
     llvm_unreachable("Expect only (affine) load and store at this point");
   }
 
+  // TODO: here we assume an AffineLoadOp, but we may want
+  // to extend to generic load/store ops. 
   std::vector<CandidateDim> results{};  
   AffineExpr affineExpr;
   if (auto loadOp = dyn_cast<AffineLoadOp>(op)) {
@@ -87,55 +89,37 @@ std::vector<CandidateDim> AffineFunction::candidates
 std::vector<CandidateDim>
     FixedOutDimPattern::candidates(Operation *op, const FixedOutDimPattern &pattern) {
   return AffineFunction::candidates(op, pattern.affine_, pattern.outDimPos_);
-} 
-
-// Set up the folder list based on the placeholder position.
-// A placeholder fold is an identifier of a set of placeholders
-// that must get assigned the same candidate.
-// For example, given access(_i, _j) and access(_j, _i), the 
-// folder list is: 0-1-1-0. 
-void PlaceholderSet::setUpFolds() {
-  placeholderFolds_.clear();
-  placeholderFolds_.reserve(std::distance(begin(), end()));
-  std::vector<std::pair<size_t, size_t>> knownIds;
-  size_t index = 0;
-  for (const auto &placeholder : *this) {
-    auto namePos = std::find_if(knownIds.begin(), knownIds.end(),
-        [&placeholder] (const std::pair<size_t, size_t> &pair) {
-            return pair.first == placeholder.id_;
-        });
-    if (namePos == knownIds.end()) {
-      knownIds.emplace_back(placeholder.id_, index);
-      placeholderFolds_.emplace_back(index);
-    }
-    else {
-      placeholderFolds_.emplace_back(namePos->second);
-    }
-    ++index;
-  }
 }
 
-// All the placeholders should get different assignments, expect those
-// that belong to the same fold.
-static bool hasNoDuplicateAssignments(
-    PlaceholderSet &ps, std::vector<CandidateDim> partialCombination) {
-  auto folds = ps.placeholderFolds_;
-  auto size = partialCombination.size();
+// Check that, if two elements in "combination" correspond to the same values
+// in "folds", they are equal, and that they are unique within "combination"
+// otherwise.  Comparison is performed by calling the function objects
+// "eqCompare" and "neCompare" for equality and non-equality respectively.
+// While these operations are often reciprocal, this is not always the case,
+// for example in tri-state logic.
+// "folds" must be at least as large as "combination".
+template <typename T, typename EqComparator, typename NeComparator>
+bool areFoldsValid(const std::vector<T> &combination,
+                   const std::vector<size_t> &folds, EqComparator eqCompare,
+                   NeComparator neCompare) {
+  // Algorithmically not the most efficient way of finding duplicates, but
+  // removes the need to include hash-tables and/or perform additional
+  // allocations.
+  size_t size = combination.size();
   if (size > folds.size()) {
-    llvm_unreachable("folds are not propery set");
+    llvm_unreachable("folds are not properly set up");
   }
 
-  for (size_t i = 0; i < size; i++) {
-    for (size_t j = i + 1; j < size; j++) {
+  for (size_t i = 0; i < size; ++i) {
+    for (size_t j = i + 1; j < size; ++j) {
       if (folds[i] == folds[j]) {
-        if (partialCombination[i].inputDimPos_ != partialCombination[j].inputDimPos_) {
+        if (neCompare(combination.at(i), combination.at(j))) {
           return false;
-        }
-        else {
+        } else {
           continue;
         }
       }
-      if (partialCombination[i].inputDimPos_ == partialCombination[j].inputDimPos_) {
+      if (eqCompare(combination.at(i), combination.at(j))) {
         return false;
       }
     }
@@ -143,11 +127,24 @@ static bool hasNoDuplicateAssignments(
   return true;
 }
 
+// All the placeholders should get different assignments, expect those
+// that belong to the same fold.
+static bool hasNoDuplicateAssignments(
+    const PlaceholderSet &ps, const std::vector<CandidateDim> &partialCombination) {
+  return areFoldsValid(partialCombination, ps.placeholderFolds_,
+    [](const CandidateDim left, const CandidateDim right) {
+      return left == right;
+    },
+    [](const CandidateDim left, const CandidateDim right) {
+      return left != right;
+    });
+}
+
 // All the placeholders in a group are either not yet matched, or
 // matched the same load/store operation. A load/store operation 
 // matched in a group is not matched in any previous group.
 static bool groupsAreProperlyFormed(
-    PlaceholderSet &ps, std::vector<CandidateDim> partialCombination) {
+    const PlaceholderSet &ps, const std::vector<CandidateDim> &partialCombination) {
   std::vector<Operation *> previouslyMatchedOperations{};
 
   for (const auto &group : ps.placeholderGroups_) {
@@ -175,111 +172,71 @@ static bool groupsAreProperlyFormed(
   return true;
 }
 
-static bool isSuitableCombination(
-    PlaceholderSet &ps, std::vector<CandidateDim> partialCombination) {
- return hasNoDuplicateAssignments(ps, partialCombination) &&
-        groupsAreProperlyFormed(ps, partialCombination);  
+bool PlaceholderSet::isSuitableCombination(
+    const std::vector<CandidateDim> &partialCombination) const {
+  return hasNoDuplicateAssignments(*this, partialCombination) &&
+         groupsAreProperlyFormed(*this, partialCombination);
 }
 
-// Check if the current combination is a good one.
-static void recursivelyCheckCombinations(
-    PlaceholderSet &ps, std::vector<CandidateDim> partialCombination,
-    Matches &suitableCandidates) {
+static inline Operation *findOp(const std::vector<size_t> &group,
+    const std::vector<CandidateDim> &combination) {
+  for (auto idx : group) {
+    if (idx >= combination.size()) {
+      continue;
+    }
+    return combination.at(idx).operation_;
+  }
+  return nullptr;
+}
 
-  // Is the current combination a valid one?
-  if (!isSuitableCombination(ps, partialCombination))
-    return;
+Value* getMemRef(Operation *op) {
+  if (auto loadOp = dyn_cast<AffineLoadOp>(op)) {
+    return loadOp.getMemRef();
+  }
+  else {
+    if (!isa<AffineStoreOp>(op))
+      llvm_unreachable("expect load/store");
+    auto storeOp = dyn_cast<AffineStoreOp>(op);
+    return storeOp.getMemRef();
+  }
+}
+
+static bool compareGroupsBelongToSameArray(
+    const std::vector<size_t> &group1, const std::vector<size_t> &group2,
+    const std::vector<CandidateDim> &combination, bool equality) {
+  Operation *operation1 = findOp(group1, combination);
+  Operation *operation2 = findOp(group2, combination);
+  if ((!operation1) || (!operation2))
+    return false;
+
+  // TODO: generalize for generic load/store operations. 
+  if ((!isa<AffineLoadOp>(operation1)) && (!isa<AffineStoreOp>(operation2)))
+    llvm_unreachable("expect load or store operation");
  
-  // The combination is known to be valid. We are good
-  // to go.
-  size_t size = std::distance(ps.begin(), ps.end());
-  if (partialCombination.size() == size) {
-    suitableCandidates.emplace_back(ps, partialCombination);
-    return;
-  }
-
-  // If the combination is not yet valid add one new
-  // element and recurse.
-  auto pos = partialCombination.size();
-  for (const auto &candidate : ps.placeholders_[pos].candidates_) {
-    partialCombination.push_back(candidate);
-    recursivelyCheckCombinations(ps, partialCombination, suitableCandidates);
-    partialCombination.pop_back();
-  }
+  auto memRefOp1 = getMemRef(operation1);
+  auto memRefOp2 = getMemRef(operation2);  
+  return (memRefOp1 == memRefOp2) ^ !equality;
 }
 
-static Matches suitableCandidates(PlaceholderSet &ps) {
-  Matches result;
-  recursivelyCheckCombinations(ps, {}, result);
-  return result;
+bool PlaceholderGroupedSet::isSuitableCombination(
+    const std::vector<CandidateDim> &partialCombination) const {
+  bool isValid = 
+    static_cast<const PlaceholderSet&>(*this).isSuitableCombination(partialCombination);
+  isValid &&
+    areFoldsValid(this->placeholderGroups_, placeholderGroupFolds_,
+                  [&partialCombination](const std::vector<size_t> &group1,
+                                        const std::vector<size_t> &group2) {
+                    return compareGroupsBelongToSameArray(
+                      group1, group2, partialCombination, true);
+                  },
+                  [&partialCombination](const std::vector<size_t> &group1,
+                                        const std::vector<size_t> &group2) {
+                    return compareGroupsBelongToSameArray(
+                      group1, group2, partialCombination, false);
+                  });
+  return isValid;
 }
-
-// Check if the placeholder combination satisfies the load/store
-// operations provided.
-Matches matchImpl(const SmallVector<Operation *, 8> &ops, PlaceholderSet ps) {
-  if (!ops.size()) {
-    return {};
-  }
-  for (auto &placeholder : ps) {
-    for (auto &op : ops) {
-      for (auto && c : FixedOutDimPattern::candidates(op, placeholder.pattern_)) {
-        placeholder.candidates_.push_back(c);
-      }
-    }
-    if (placeholder.candidates_.empty()) {
-      return {};
-    }
-  }
-  return suitableCandidates(ps);
-}
-
-// Placeholder are not reused across different calls of allOf.
-// This means that if we write:
-//    auto matchesRead = match(reads, allOf(access(_i, _j)));
-//    auto matchesWrite = match(writes, allOf(access(_i, _j));
-// the first _i or _j may match different candidate with respect
-// to the second _i and _j. This force the user to check the matched
-// candidates. This function does this for you. 
-Matches match (const SmallVector<Operation *, 8> &opsFirst, PlaceholderSet psFirst,
-    const SmallVector<Operation *, 8> &opsSecond, PlaceholderSet psSecond) {
-  if ((!psSecond.placeholders_.size()) && (!opsSecond.size())) {
-    return matchImpl(opsFirst, psFirst);
-  }
-  if ((psSecond.placeholders_.size()) && (!opsSecond.size())) {
-    return {};  
-  }
-  if ((!psSecond.placeholders_.size()) && (opsSecond.size())) {
-    return {};
-  }
-  auto matchesFirst = matchImpl(opsFirst, psFirst);
-  auto matchesSecond = matchImpl(opsSecond, psSecond);
-  if (matchesFirst.size() != matchesSecond.size())
-    return {};
-
-  for (const auto& matchFirst : matchesFirst) {
-    for (const auto& matchSecond : matchesSecond) {
-      auto psValuesFirst = matchFirst.placeholderValues_;
-      auto psValuesSecond = matchSecond.placeholderValues_;
-      for (const auto& psValueFirst : psValuesFirst) {
-        for (const auto& psValueSecond : psValuesSecond) {
-          if (psValueFirst.first == psValueSecond.first) {
-            if (psValueFirst.second != psValueSecond.second) {
-              return {};
-            }
-          }
-        }
-      }
-    }
-  }
-
-  for (size_t i = 0; i < matchesFirst.size(); i++) {
-    matchesFirst[i].placeholderValues_.insert(
-      matchesFirst[i].placeholderValues_.end(), 
-      matchesSecond[i].placeholderValues_.begin(), matchesSecond[i].placeholderValues_.end());
-  }
-  return matchesFirst;
-}
-
+ 
 Match::Match(const PlaceholderSet &ps, const std::vector<CandidateDim> &candidates) {
   size_t size = std::distance(ps.begin(), ps.end());
   if (size != candidates.size())
@@ -328,6 +285,35 @@ bool CandidateDim::operator!=(const CandidateDim &candidate) const {
   return true;
 }
 
+template <>
+void Placeholder<FixedOutDimPattern>::dump() {
+  outs() << "---> Placeholder<FixedOutDimPattern>\n";
+  outs() << "constant: " << pattern_.affine_.constant_ << "\n"; 
+  outs() << "coefficient: " << pattern_.affine_.coefficient_ << "\n";
+  outs() << "id: " << id_ << "\n";
+  outs() << "#Candidates: " << candidates_.size() << "\n";
+  if (candidates_.size()) {
+    for (size_t i = 0; i < candidates_.size() - 1; i++) {
+      outs() << candidates_[i].inputDimPos_;
+      outs() << " - ";
+    }
+    outs() << candidates_[candidates_.size() - 1].inputDimPos_;
+    outs() << "\n";
+    outs() << "operations" << "\n";
+    for (size_t i = 0; i < candidates_.size() - 1; i++) {
+      outs() << candidates_[i].operation_;
+      outs() << " - ";
+    }
+    outs() << candidates_[candidates_.size() - 1].operation_;
+    outs() << "\n";
+  }
+}
+
+template <>
+void Placeholder<char>::dump() {
+  outs() << "---> Placeholder<char>\n";
+}
+
 // dump placeholderSet.
 void PlaceholderSet::dump() {
   outs() << "#Placeholder: " << placeholders_.size() << "\n";
@@ -362,6 +348,17 @@ void PlaceholderSet::dump() {
     outs() << placeholderFolds_[placeholderFolds_.size() - 1] << "\n";
   }
   outs() << "\n\n";
+}
+
+void PlaceholderGroupedSet::dump() {
+  PlaceholderSet::dump();
+  outs() << "Group Folds: " << "\n";
+  if (placeholderGroupFolds_.size()) {
+    for (size_t i = 0; i < placeholderGroupFolds_.size() - 1; i++) {
+      llvm::outs() << placeholderGroupFolds_[i] << " - ";
+    }
+    outs() << placeholderGroupFolds_[placeholderGroupFolds_.size() - 1] << "\n";
+  }
 }
 
 } // end namespace looptactics.

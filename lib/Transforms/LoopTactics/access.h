@@ -26,7 +26,7 @@ class AffineFunction {
       candidates(Operation *op, const AffineFunction &pattern, int outDimPos);
 };
 
-/// Candidate.
+/// Candidate dimension.
 class CandidateDim {
   public:
     mlir::Value *inputDimPos_;
@@ -40,6 +40,16 @@ class CandidateDim {
     bool operator==(const CandidateDim &candidate) const;
     bool operator!=(const CandidateDim &candidate) const;
 };
+
+/// Candidate array. (missing something?)
+//class CandidateArray {
+//  public:
+//    Operation *operation_;
+//  
+//  public:
+//    CandidateArray() : operation_(nullptr) {};
+//    static CandidateArray candidates(Operation *op);
+//};
 
 /// Fixed output dim pattern.
 /// Wrapper around the payload (i.e., AffineFunction) to keep track
@@ -135,7 +145,7 @@ class PlaceholderSet {
   public:
     explicit PlaceholderSet() = default;
     void dump();
-    void setUpFolds();
+    bool isSuitableCombination(const std::vector<CandidateDim> &) const;
     decltype (placeholders_.begin()) begin() {
       return placeholders_.begin();
     };
@@ -175,11 +185,30 @@ class MatchCandidate {
   friend class Match;
 };
 
-Matches match (const SmallVector<Operation *, 8> &opsFirst, PlaceholderSet psFirst,
-    const SmallVector<Operation *, 8> &opsSecond = SmallVector<Operation *, 8>(), 
-    PlaceholderSet psSecond = PlaceholderSet());
+// Entry function for the access matchers.
+template <typename PlaceholderCollection>
+Matches match(const SmallVector<Operation *, 8> &firstOpsSet, PlaceholderCollection psFirst,
+    const SmallVector<Operation *, 8> &secondOpsSet = SmallVector<Operation *, 8>(),
+    PlaceholderCollection psSecond = PlaceholderCollection());
 
 using placeholder = Placeholder<FixedOutDimPattern>;
+using ArrayPlaceholder = Placeholder<char>;
+inline ArrayPlaceholder arrayPlaceholder() { return ArrayPlaceholder('A'); }
+
+class PlaceholderGroupedSet : public PlaceholderSet {
+  public:
+    PlaceholderGroupedSet(){};
+    explicit PlaceholderGroupedSet(PlaceholderSet &&parent) : PlaceholderSet(parent) {}
+    void dump();
+    bool isSuitableCombination(const std::vector<CandidateDim> &) const;
+
+    std::vector<size_t> placeholderGroupFolds_;
+};
+
+struct ArrayPlaceholderList {
+  ArrayPlaceholder array;
+  std::vector<Placeholder<FixedOutDimPattern>> list;
+};
 
 } // end namespace looptactics.
 
