@@ -7,6 +7,7 @@ add_llvm_library(MLIRLinalg
   Transforms/Fusion.cpp
   Transforms/LinalgTransforms.cpp
   Transforms/LinalgToLoops.cpp
+  Transforms/AffineToLinalg.cpp
   Transforms/Promotion.cpp
   Transforms/Tiling.cpp
   Utils/Utils.cpp

@@ -26,8 +26,89 @@
 
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/AffineExpr.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/Dialect/AffineOps/AffineOps.h"
 
 namespace mlir {
+
+namespace matchers {
+
+/// Affine pattern.
+// FIXME: We have to delay the creation of the AffineExpression 
+//as during creation of the placeholder object we don't' know 
+//which dimension will index. Therefore we use constant_ and 
+//coefficient_ to store the values temporarily. This is not ideal. 
+class AffinePattern {
+  public:
+    MLIRContext *ctx_;
+    AffineExpr expr_;
+    int64_t constant_;
+    int64_t coefficient_;
+  
+  public:
+    AffinePattern() = delete; 
+    AffinePattern(MLIRContext *ctx) : ctx_(ctx), expr_(AffineExpr()),
+      constant_(0), coefficient_(1) {};
+};
+
+/// wrapper around payload (AffinePattern) to bind the
+/// placeholder with a given output dimension.
+class FixedOutDimPattern {
+  public:
+    AffinePattern affine_;
+    int outDimPos_;
+  
+  public:
+    FixedOutDimPattern() = delete; 
+    FixedOutDimPattern(MLIRContext *ctx) :
+      affine_(AffinePattern(ctx)), outDimPos_(INT_MAX) {};
+};
+
+/// Placeholder.
+class Placeholder {
+  public:
+    FixedOutDimPattern pattern_;
+ 
+  public:
+    Placeholder() = delete;
+    Placeholder(MLIRContext* ctx) : pattern_(FixedOutDimPattern(ctx)) {};
+    void dump() const {
+      llvm::outs() << "pattern: " << "\n";
+      pattern_.affine_.expr_.dump();
+      llvm::outs() << "outDimPos: " << pattern_.outDimPos_ << "\n";
+    };
+};
+
+inline Placeholder
+    operator+(Placeholder p, int64_t i) {
+  p.pattern_.affine_.constant_ += i; 
+  return p;
+}
+
+inline Placeholder
+    operator-(Placeholder p, int64_t i) {
+  p.pattern_.affine_.constant_ -= i;
+  return p;
+}
+
+inline Placeholder
+    operator*(int64_t i, Placeholder p) {
+  if (i <= 0)
+    llvm_unreachable("Invalid coefficient for Placeholder");
+  p.pattern_.affine_.coefficient_ *= i;
+  return p;
+}
+
+inline Placeholder
+    operator*(Placeholder p, int64_t i) {
+  if (i <= 0)
+    llvm_unreachable("Invalid coefficient for Placeholder");
+  p.pattern_.affine_.coefficient_ *= i;
+  return p;
+}
+
+} // end namespace matchers
 
 namespace detail {
 
@@ -133,6 +214,72 @@ template <typename OpClass> struct op_matcher {
   bool match(Operation *op) { return isa<OpClass>(op); }
 };
 
+/// The matcher that matches Affine/Store ops with a given pattern expressed
+/// via Placeholder(...)
+// FIXME: we are mixing namespace here (use of matchers in detail).
+// Maybe we can also live without "outDimPos_".
+template <typename OpClass> struct op_load_store_matcher {
+  
+  std::vector<matchers::Placeholder> placeholders_;
+  
+  op_load_store_matcher(std::vector<matchers::Placeholder> ps) : placeholders_(ps) {
+    int pos = 0;
+    for (auto &placeholder : placeholders_) { 
+      placeholder.pattern_.outDimPos_ = pos;
+      // At this point we know the placeholder postion.
+      // We create the affine expression to match.
+      detail::bindDims(
+        placeholder.pattern_.affine_.ctx_, 
+        placeholder.pattern_.affine_.expr_, pos++);
+      placeholder.pattern_.affine_.expr_ = placeholder.pattern_.affine_.expr_ + 
+        placeholder.pattern_.affine_.constant_;
+      placeholder.pattern_.affine_.expr_ = placeholder.pattern_.affine_.expr_ *
+        placeholder.pattern_.affine_.coefficient_;
+    }
+  };
+  op_load_store_matcher() = delete;
+  bool match(Operation *op) { 
+    if (!placeholders_.size()) {
+      llvm_unreachable("expect non empty placeholders");
+    }
+    if (!op) {
+      return false;
+    }
+    if (!isa<OpClass>(op)) {
+      return false;
+    }
+    if (auto loadOp = dyn_cast<AffineLoadOp>(op)) {
+      size_t dims = loadOp.getAffineMap().getNumResults();
+      if (dims != placeholders_.size()) {
+        return false;
+      }
+      for (size_t dim = 0; dim < dims; dim++) {
+        AffineExpr loadAffine = loadOp.getAffineMap().getResult(dim);
+        loadAffine.dump();
+        if (placeholders_[dim].pattern_.affine_.expr_ != loadAffine) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (auto storeOp = dyn_cast<AffineStoreOp>(op)) {
+      size_t dims = storeOp.getAffineMap().getNumResults();
+      if (dims != placeholders_.size()) {
+        return false;
+      }
+      for (size_t dim = 0; dim < dims; dim++) {
+        AffineExpr storeAffine = storeOp.getAffineMap().getResult(dim);
+        storeAffine.dump();
+        if (placeholders_[dim].pattern_.affine_.expr_ != storeAffine) {
+          return false; 
+        }
+      }
+      return true;
+    }
+    llvm_unreachable("expect AffineStore or AffineLoad");
+  };
+};
+
 /// Trait to check whether T provides a 'match' method with type
 /// `OperationOrValue`.
 template <typename T, typename OperationOrValue>
@@ -220,6 +367,22 @@ inline detail::constant_int_value_matcher<1> m_One() {
 /// Matches the given OpClass.
 template <typename OpClass> inline detail::op_matcher<OpClass> m_Op() {
   return detail::op_matcher<OpClass>();
+}
+
+template<class T, class...>
+struct are_same : std::true_type
+{};
+
+template<class T, class U, class... TT>
+struct are_same<T, U, TT...>
+    : std::integral_constant<bool, std::is_same<T,U>{} && are_same<T, TT...>{}>
+{};
+
+template <typename OpClass, typename... Args> 
+    inline detail::op_load_store_matcher<OpClass> m_Op(matchers::Placeholder arg, Args... args) {
+  static_assert(are_same<matchers::Placeholder, Args...>{},
+    "all args must be Placeholder");
+  return detail::op_load_store_matcher<OpClass>({arg, args...});
 }
 
 /// Matches a constant scalar / vector splat / tensor splat integer zero.
