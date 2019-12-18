@@ -53,6 +53,15 @@ func @shuffle2D(%a: vector<1x4xf32>, %b: vector<2x4xf32>) -> vector<3x4xf32> {
   return %1 : vector<3x4xf32>
 }
 
+// CHECK-LABEL: @extract_element
+func @extract_element(%a: vector<16xf32>) -> f32 {
+  // CHECK:      %[[C15:.*]] = constant 15 : index
+  %c = constant 15 : index
+  // CHECK-NEXT: vector.extractelement %{{.*}}[%[[C15]] : index] : vector<16xf32>
+  %1 = vector.extractelement %a[%c : index] : vector<16xf32>
+  return %1 : f32
+}
+
 // CHECK-LABEL: @extract
 func @extract(%arg0: vector<4x8x16xf32>) -> (vector<8x16xf32>, vector<16xf32>, f32) {
   // CHECK: vector.extract {{.*}}[3 : i32] : vector<4x8x16xf32>
@@ -62,6 +71,15 @@ func @extract(%arg0: vector<4x8x16xf32>) -> (vector<8x16xf32>, vector<16xf32>, f
   // CHECK-NEXT: vector.extract {{.*}}[3 : i32, 3 : i32, 3 : i32] : vector<4x8x16xf32>
   %3 = vector.extract %arg0[3 : i32, 3 : i32, 3 : i32] : vector<4x8x16xf32>
   return %1, %2, %3 : vector<8x16xf32>, vector<16xf32>, f32
+}
+
+// CHECK-LABEL: @insert_element
+func @insert_element(%a: f32, %b: vector<16xf32>) -> vector<16xf32> {
+  // CHECK:      %[[C15:.*]] = constant 15 : index
+  %c = constant 15 : index
+  // CHECK-NEXT: vector.insertelement %{{.*}}, %{{.*}}[%[[C15]] : index] : vector<16xf32>
+  %1 = vector.insertelement %a, %b[%c : index] : vector<16xf32>
+  return %1 : vector<16xf32>
 }
 
 // CHECK-LABEL: @insert
@@ -170,4 +188,13 @@ func @extract_slices(%arg0 : vector<4x2xf32>)
   %2 = vector.tuple_get %0, 1 : tuple<vector<2x2xf32>, vector<2x2xf32>>
   %3 = vector.tuple %1, %2 : vector<2x2xf32>, vector<2x2xf32>
   return %3 : tuple<vector<2x2xf32>, vector<2x2xf32>>
+}
+
+// CHECK-LABEL: insert_slices
+func @insert_slices(%arg0 : tuple<vector<2x2xf32>, vector<2x2xf32>>)
+  -> (vector<4x2xf32>) {
+  // CHECK: vector.insert_slices %{{.*}}, [2, 2], [1, 1] : tuple<vector<2x2xf32>, vector<2x2xf32>> into vector<4x2xf32>
+  %0 = vector.insert_slices %arg0, [2, 2], [1, 1]
+    : tuple<vector<2x2xf32>, vector<2x2xf32>> into vector<4x2xf32>
+  return %0 : vector<4x2xf32>
 }

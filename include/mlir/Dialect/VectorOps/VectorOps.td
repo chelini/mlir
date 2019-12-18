@@ -267,6 +267,33 @@ def Vector_ShuffleOp :
   }];
 }
 
+def Vector_ExtractElementOp :
+  Vector_Op<"extractelement", [NoSideEffect,
+     PredOpTrait<"operand and result have same element type",
+                 TCresVTEtIsSameAsOpBase<0, 0>>]>,
+    Arguments<(ins AnyVector:$vector, Index:$position)>,
+    Results<(outs AnyType)> {
+  let summary = "extractelement operation";
+  let description = [{
+    Takes an 1-D vector and a dynamic index position and extracts the
+    scalar at that position. Note that this instruction resembles
+    vector.extract, but is restricted to 1-D vectors and relaxed
+    to dynamic indices. It is meant to be closer to LLVM's version:
+    https://llvm.org/docs/LangRef.html#extractelement-instruction
+
+    Example:
+    ```
+      %c = constant 15 : i32
+      %1 = vector.extractelement %0[%c : i32]: vector<16xf32>
+    ```
+  }];
+  let extraClassDeclaration = [{
+    VectorType getVectorType() {
+      return vector()->getType().cast<VectorType>();
+    }
+  }];
+}
+
 def Vector_ExtractOp :
   Vector_Op<"extract", [NoSideEffect,
      PredOpTrait<"operand and result have same element type",
@@ -325,7 +352,7 @@ def Vector_ExtractSlicesOp :
 
       %3 = vector.extract_slices %2, [2, 2], [1, 1]
         : vector<4x3xf32> into tuple<vector<2x2xf32>, vector<2x1xf32>,
-                                     vector<2x2xf32>, vector<2x2xf32>>
+                                     vector<2x2xf32>, vector<2x1xf32>>
     ```
   }];
   let builders = [OpBuilder<
@@ -343,6 +370,38 @@ def Vector_ExtractSlicesOp :
     void getStrides(SmallVectorImpl<int64_t> &results);
     static StringRef getSizesAttrName() { return "sizes"; }
     static StringRef getStridesAttrName() { return "strides"; }
+  }];
+}
+
+def Vector_InsertElementOp :
+  Vector_Op<"insertelement", [NoSideEffect,
+     PredOpTrait<"source operand and result have same element type",
+                 TCresVTEtIsSameAsOpBase<0, 0>>,
+     PredOpTrait<"dest operand and result have same type",
+                 TCresIsSameAsOpBase<0, 1>>]>,
+     Arguments<(ins AnyType:$source, AnyVector:$dest, Index:$position)>,
+     Results<(outs AnyVector)> {
+  let summary = "insertelement operation";
+  let description = [{
+    Takes a scalar source, an 1-D destination vector and a dynamic index
+    position and inserts the source into the destination at the proper
+    position.  Note that this instruction resembles vector.insert, but
+    is restricted to 1-D vectors and relaxed to dynamic indices. It is
+    meant to be closer to LLVM's version:
+    https://llvm.org/docs/LangRef.html#insertelement-instruction
+
+    Example:
+    ```
+      %c = constant 15 : i32
+      %f = constant 0.0f : f32
+      %1 = vector.insertelement %f, %0[%c : i32]: vector<16xf32>
+    ```
+  }];
+  let extraClassDeclaration = [{
+    Type getSourceType() { return source()->getType(); }
+    VectorType getDestVectorType() {
+      return dest()->getType().cast<VectorType>();
+    }
   }];
 }
 
@@ -377,6 +436,58 @@ def Vector_InsertOp :
     VectorType getDestVectorType() {
       return dest()->getType().cast<VectorType>();
     }
+  }];
+}
+
+def Vector_InsertSlicesOp :
+  Vector_Op<"insert_slices", [NoSideEffect]>,
+    Arguments<(ins TupleOf<[AnyVector]>:$vectors, I64ArrayAttr:$sizes,
+                   I64ArrayAttr:$strides)>,
+    Results<(outs AnyVector)> {
+  let summary = "vector insert slices operation";
+  let description = [{
+    Takes a tuple of vector slices and inserts them into the vector result
+    according to the 'sizes' and 'strides' parameters.
+
+    The arguments 'sizes' and 'strides' represent a specification for
+    generating the unrolling of 'vector' shape, which has all slices of shape
+    'sizes' except for slices at dimension boundaries when 'vector' dimension
+    sizes are not a multiple of 'sizes'.
+
+    Each slice in 'vectors' is at the tuple element index corresponding to the
+    linear index of the slice w.r.t the unrolling scheme represented by 'sizes'.
+    Currently, only unit strides are supported.
+
+    Examples:
+    ```
+      %0 = vector.extract_slices %0, [2, 2], [1, 1]
+        : vector<4x2xf32> into tuple<vector<2x2xf32>, vector<2x2xf32>>
+
+      %1 = vector.insert_slices %0, [2, 2], [1, 1]
+        : tuple<vector<2x2xf32>, vector<2x2xf32>> into vector<4x2xf32>
+
+      // Example with partial slices at dimension boundaries.
+      %3 = vector.extract_slices %2, [2, 2], [1, 1]
+        : vector<4x3xf32> into tuple<vector<2x2xf32>, vector<2x1xf32>,
+                                     vector<2x2xf32>, vector<2x1xf32>>
+
+      %4 = vector.insert_slices %3, [2, 2], [1, 1]
+        : tuple<vector<2x2xf32>, vector<2x1xf32>,
+                vector<2x2xf32>, vector<2x1xf32>> into vector<4x3xf32>
+    ```
+  }];
+
+  let extraClassDeclaration = [{
+    TupleType getSourceTupleType() {
+      return vectors()->getType().cast<TupleType>();
+    }
+    VectorType getResultVectorType() {
+      return getResult()->getType().cast<VectorType>();
+    }
+    void getSizes(SmallVectorImpl<int64_t> &results);
+    void getStrides(SmallVectorImpl<int64_t> &results);
+    static StringRef getSizesAttrName() { return "sizes"; }
+    static StringRef getStridesAttrName() { return "strides"; }
   }];
 }
 
@@ -869,8 +980,8 @@ def Vector_TupleGetOp :
     VectorType getResultVectorType() {
       return getResult()->getType().cast<VectorType>();
     }
-    unsigned getIndex() {
-      return getAttrOfType<IntegerAttr>("index").getValue().getZExtValue();
+    int64_t getIndex() {
+      return getAttrOfType<IntegerAttr>("index").getValue().getSExtValue();
     }
     static StringRef getIndexAttrName() { return "index"; }
   }];

@@ -60,8 +60,16 @@ func @shuffle_index_out_of_range(%arg0: vector<2xf32>, %arg1: vector<2xf32>) {
 // -----
 
 func @shuffle_empty_mask(%arg0: vector<2xf32>, %arg1: vector<2xf32>) {
-  // expected-error@+1 {{custom op 'vector.shuffle' invalid mask length}}
+  // expected-error@+1 {{'vector.shuffle' invalid mask length}}
   %1 = vector.shuffle %arg0, %arg1 [] : vector<2xf32>, vector<2xf32>
+}
+
+// -----
+
+func @extract_element(%arg0: vector<4x4xf32>) {
+  %c = constant 3 : index
+  // expected-error@+1 {{'vector.extractelement' op expected 1-D vector}}
+  %1 = vector.extractelement %arg0[%c : index] : vector<4x4xf32>
 }
 
 // -----
@@ -111,6 +119,22 @@ func @extract_precise_position_overflow(%arg0: vector<4x8x16xf32>) {
 func @extract_position_overflow(%arg0: vector<4x8x16xf32>) {
   // expected-error@+1 {{expected position attribute #3 to be a non-negative integer smaller than the corresponding vector dimension}}
   %1 = vector.extract %arg0[0 : i32, 0 : i32, -1 : i32] : vector<4x8x16xf32>
+}
+
+// -----
+
+func @insert_element(%arg0: f32, %arg1: vector<4x4xf32>) {
+  %c = constant 3 : index
+  // expected-error@+1 {{'vector.insertelement' op expected 1-D vector}}
+  %0 = vector.insertelement %arg0, %arg1[%c : index] : vector<4x4xf32>
+}
+
+// -----
+
+func @insert_element_wrong_type(%arg0: i32, %arg1: vector<4xf32>) {
+  %c = constant 3 : index
+  // expected-error@+1 {{'vector.insertelement' op failed to verify that source operand and result have same element type}}
+  %0 = "vector.insertelement" (%arg0, %arg1, %c) : (i32, vector<4xf32>, index) -> (vector<4xf32>)
 }
 
 // -----
@@ -759,4 +783,38 @@ func @tuple_get_of_non_vectors(%arg0 : tuple<vector<4x2xf32>, index>) {
   return
 }
 
+// -----
 
+func @insert_slices_non_unit_strides(%arg0 : tuple<vector<2x2xf32>, vector<2x2xf32>>) {
+  // expected-error@+1 {{requires unit strides}}
+  %0 = vector.insert_slices %arg0, [2, 2], [1, 3]
+    : tuple<vector<2x2xf32>, vector<2x2xf32>> into vector<4x2xf32>
+  return
+}
+
+// -----
+
+func @insert_slices_tuple_element_wrong_rank(%arg0 : tuple<vector<2x2xf32>, vector<2x2x3xf32>>) {
+  // expected-error@+1 {{requires vector tuple elements of rank 2}}
+  %0 = vector.insert_slices %arg0, [2, 2], [1, 1]
+    : tuple<vector<2x2xf32>, vector<2x2x3xf32>> into vector<4x2xf32>
+  return
+}
+
+// -----
+
+func @insert_slices_sizes_strides_wrong_rank(%arg0 : tuple<vector<2x2xf32>, vector<2x2xf32>>) {
+  // expected-error@+1 {{requires sizes and strides of rank}}
+  %0 = vector.insert_slices %arg0, [2, 2], [1, 1, 1]
+    : tuple<vector<2x2xf32>, vector<2x2xf32>> into vector<4x2xf32>
+  return
+}
+
+// -----
+
+func @insert_slices_invalid_tuple_element_type(%arg0 : tuple<vector<2x2xf32>, vector<4x2xf32>>) {
+  // expected-error@+1 {{invalid tuple element type}}
+  %0 = vector.insert_slices %arg0, [2, 2], [1, 1]
+    : tuple<vector<2x2xf32>, vector<4x2xf32>> into vector<4x2xf32>
+  return
+}
